@@ -1,0 +1,89 @@
+name: Build Executable
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller requests
+
+    - name: Extract version from gui.py
+      id: extract-version
+      run: |
+        VERSION=$(grep -oP '__version__\s*=\s*["'\'']\K[^"'\'']+' gui.py)
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Extracted version: $VERSION"
+
+    - name: Get latest release version
+      id: get-latest-release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        API_URL="https://api.github.com/repos/${{ github.repository }}/releases/latest"
+        RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" $API_URL)
+        LATEST_VERSION=$(echo "$RESPONSE" | grep -oP '"tag_name": "\K[^"]+')
+        
+        if [ -z "$LATEST_VERSION" ]; then
+          echo "latest_version=0.0.0" >> $GITHUB_OUTPUT
+          echo "No existing release found, using default 0.0.0"
+        else
+          echo "latest_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+          echo "Latest release version: $LATEST_VERSION"
+        fi
+
+    - name: Compare versions
+      id: compare-versions
+      run: |
+        if [ "${{ steps.extract-version.outputs.version }}" != "${{ steps.get-latest-release.outputs.latest_version }}" ]; then
+          echo "build_required=true" >> $GITHUB_OUTPUT
+          echo "Version mismatch, build required"
+        else
+          echo "build_required=false" >> $GITHUB_OUTPUT
+          echo "Version match, skip build"
+        fi
+
+    - name: Build with PyInstaller
+      if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
+      run: |
+        pyinstaller --onedir --name=MyApp gui.py
+        echo "Build completed"
+
+    - name: Calculate MD5 and prepare release
+      if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
+      id: calculate-md5
+      run: |
+        cd dist/MyApp
+        MD5=$(md5sum MyApp | awk '{ print $1 }')
+        echo "md5=$MD5" >> $GITHUB_OUTPUT
+        echo "MD5: $MD5"
+        
+        # Prepare release notes
+        echo "**Version**: ${{ steps.extract-version.outputs.version }}" > release_notes.md
+        echo "**MD5**: \`$MD5\`" >> release_notes.md
+        echo "**Build Date**: $(date -u)" >> release_notes.md
+
+    - name: Create Release
+      if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.extract-version.outputs.version }}
+        name: Release ${{ steps.extract-version.outputs.version }}
+        body_path: dist/MyApp/release_notes.md
+        files: dist/MyApp/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
