@@ -69,28 +69,39 @@ jobs:
       run: |
         pyinstaller --onedir --name=MyApp gui.py
         echo "Build completed"
-
+    
+    - name: Compress to 7z
+      if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
+      run: |
+        # 安装7z工具 (Ubuntu环境)
+        sudo apt-get install p7zip-full -y
+        # 压缩整个MyApp目录
+        7z a -t7z dist/MyApp.7z ./dist/MyApp/*
+        # 验证压缩文件
+        ls -lh dist/MyApp.7z
+    
     - name: Calculate MD5 and prepare release
       if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
       id: calculate-md5
       run: |
-        cd dist/MyApp
-        MD5=$(md5sum MyApp | awk '{ print $1 }')
+        # 计算7z文件的MD5
+        cd dist
+        MD5=$(md5sum MyApp.7z | awk '{ print $1 }')
         echo "md5=$MD5" >> $GITHUB_OUTPUT
         echo "MD5: $MD5"
         
-        # Prepare release notes
+        # 准备release notes (文件路径改为dist目录)
         echo "**Version**: ${{ steps.extract-version.outputs.version }}" > release_notes.md
         echo "**MD5**: \`$MD5\`" >> release_notes.md
         echo "**Build Date**: $(date -u)" >> release_notes.md
-
+    
     - name: Create Release
       if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.extract-version.outputs.version }}
         name: Release ${{ steps.extract-version.outputs.version }}
-        body_path: dist/MyApp/release_notes.md
-        files: dist/MyApp/*
+        body_path: dist/release_notes.md  # 注意路径修改
+        files: dist/MyApp.7z  # 改为上传7z文件
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
