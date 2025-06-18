@@ -34,16 +34,24 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        API_URL="https://api.github.com/repos/${{ github.repository }}/releases/latest"
-        RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" $API_URL)
-        LATEST_VERSION=$(echo "$RESPONSE" | grep -oP '"tag_name": "\K[^"]+')
+        API_URL="https://api.github.com/repos/arnold2957/wvd_test/releases/latest"
         
-        if [ -z "$LATEST_VERSION" ]; then
-          echo "latest_version=0.0.0" >> $GITHUB_OUTPUT
-          echo "No existing release found, using default 0.0.0"
-        else
+        # 使用 -f 参数处理 HTTP 错误状态码，-w 获取状态码
+        RESPONSE=$(curl -s -f -L -w "%{http_code}" -H "Authorization: token $GITHUB_TOKEN" "$API_URL") 
+        HTTP_STATUS=${RESPONSE: -3}  # 提取最后3位作为状态码
+        RESPONSE_BODY=${RESPONSE::${#RESPONSE}-3}  # 移除状态码部分
+        
+        if [[ $HTTP_STATUS -eq 200 ]]; then
+          LATEST_VERSION=$(echo "$RESPONSE_BODY" | grep -oP '"tag_name": "\K[^"]+')
           echo "latest_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
           echo "Latest release version: $LATEST_VERSION"
+        elif [[ $HTTP_STATUS -eq 404 ]]; then
+          echo "latest_version=0.0.0" >> $GITHUB_OUTPUT
+          echo "Error 404: Repository or release not found. Using default 0.0.0"
+        else
+          echo "latest_version=0.0.0" >> $GITHUB_OUTPUT
+          echo "Error $HTTP_STATUS: Failed to check release. Using default 0.0.0"
+          echo "API response: $RESPONSE_BODY"  # 输出错误信息
         fi
 
     - name: Compare versions
