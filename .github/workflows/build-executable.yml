@@ -24,45 +24,53 @@ jobs:
 
     - name: Extract version from gui.py
       id: extract-version
+      shell: pwsh
       run: |
-        VERSION=$(grep -oP '__version__\s*=\s*["'\'']\K[^"'\'']+' gui.py)
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-        echo "Extracted version: $VERSION"
+        $version = (Select-String -Path .\gui.py -Pattern '__version__\s*=\s*[''"](\d+\.\d+\.\d+)[''"]').Matches.Groups[1].Value
+        echo "version=$version" >> $env:GITHUB_OUTPUT
+        echo "Extracted version: $version"
 
     - name: Get latest release version
       id: get-latest-release
+      shell: pwsh
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        API_URL="https://api.github.com/repos/arnold2957/wvd_test/releases/latest"
-        
-        RESPONSE=$(curl -s -L -w "%{http_code}" -H "Authorization: token $GITHUB_TOKEN" "$API_URL")
-        HTTP_STATUS=${RESPONSE: -3}
-        RESPONSE_BODY=${RESPONSE::${#RESPONSE}-3}  # 修正变量名拼写
-        
-        if [[ $HTTP_STATUS -eq 200 ]]; then
-            LATEST_VERSION=$(echo "$RESPONSE_BODY" | grep -oP '"tag_name": "\K[^"]+')
-            echo "latest_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
-            echo "Latest release version: $LATEST_VERSION"
-        elif [[ $HTTP_STATUS -eq 404 ]]; then
-            echo "latest_version=0.0.0" >> $GITHUB_OUTPUT
-            echo "Error 404: Repository or release not found. Using default 0.0.0"
-        else
-            echo "latest_version=0.0.0" >> $GITHUB_OUTPUT
-            echo "Error $HTTP_STATUS: Failed to check release. Using default 0.0.0"
-            echo "API response: $RESPONSE_BODY"
-        fi
+        $apiUrl = "https://api.github.com/repos/arnold2957/wvd_test/releases/latest"
+        $headers = @{
+            Authorization = "token $env:GITHUB_TOKEN"
+        }
+
+        try {
+            $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -Method Get -ErrorAction Stop
+            $latestVersion = $response.tag_name
+            echo "latest_version=$latestVersion" >> $env:GITHUB_OUTPUT
+            echo "Latest release version: $latestVersion"
+        }
+        catch {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+            if ($statusCode -eq 404) {
+                echo "latest_version=0.0.0" >> $env:GITHUB_OUTPUT
+                echo "Error 404: Repository or release not found. Using default 0.0.0"
+            }
+            else {
+                echo "latest_version=0.0.0" >> $env:GITHUB_OUTPUT
+                echo "Error $statusCode: Failed to check release. Using default 0.0.0"
+            }
+        }
 
     - name: Compare versions
       id: compare-versions
+      shell: pwsh
       run: |
-        if [ "${{ steps.extract-version.outputs.version }}" != "${{ steps.get-latest-release.outputs.latest_version }}" ]; then
-          echo "build_required=true" >> $GITHUB_OUTPUT
-          echo "Version mismatch, build required"
-        else
-          echo "build_required=false" >> $GITHUB_OUTPUT
-          echo "Version match, skip build"
-        fi
+        if ("${{ steps.extract-version.outputs.version }}" -ne "${{ steps.get-latest-release.outputs.latest_version }}") {
+            echo "build_required=true" >> $env:GITHUB_OUTPUT
+            echo "Version mismatch, build required"
+        }
+        else {
+            echo "build_required=false" >> $env:GITHUB_OUTPUT
+            echo "Version match, skip build"
+        }
 
     - name: Build with PyInstaller
       if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
@@ -72,28 +80,30 @@ jobs:
     
     - name: Compress to 7z
       if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
+      shell: pwsh
       run: |
-        # 安装7z工具 (Ubuntu环境)
-        sudo apt-get install p7zip-full -y
-        # 压缩整个MyApp目录
+        # 使用Windows预装的7zip
         7z a -t7z dist/MyApp.7z ./dist/MyApp/*
         # 验证压缩文件
-        ls -lh dist/MyApp.7z
+        Get-ChildItem dist/MyApp.7z
     
     - name: Calculate MD5 and prepare release
       if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
       id: calculate-md5
+      shell: pwsh
       run: |
-        # 计算7z文件的MD5
-        cd dist
-        MD5=$(md5sum MyApp.7z | awk '{ print $1 }')
-        echo "md5=$MD5" >> $GITHUB_OUTPUT
-        echo "MD5: $MD5"
+        # 计算MD5
+        $md5 = (Get-FileHash -Path dist/MyApp.7z -Algorithm MD5).Hash.ToLower()
+        echo "md5=$md5" >> $env:GITHUB_OUTPUT
+        echo "MD5: $md5"
         
-        # 准备release notes (文件路径改为dist目录)
-        echo "**Version**: ${{ steps.extract-version.outputs.version }}" > release_notes.md
-        echo "**MD5**: \`$MD5\`" >> release_notes.md
-        echo "**Build Date**: $(date -u)" >> release_notes.md
+        # 准备release notes
+        $date = Get-Date -Format "yyyy-MM-dd HH:mm:ss" -AsUTC
+        @"
+        **Version**: ${{ steps.extract-version.outputs.version }}
+        **MD5**: ``$md5``
+        **Build Date**: $($date)
+        "@ | Out-File -FilePath dist/release_notes.md -Encoding utf8
     
     - name: Create Release
       if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
@@ -101,7 +111,7 @@ jobs:
       with:
         tag_name: ${{ steps.extract-version.outputs.version }}
         name: Release ${{ steps.extract-version.outputs.version }}
-        body_path: dist/release_notes.md  # 注意路径修改
-        files: dist/MyApp.7z  # 改为上传7z文件
+        body_path: dist/release_notes.md
+        files: dist/MyApp.7z
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
