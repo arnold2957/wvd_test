@@ -54,8 +54,9 @@ jobs:
                 echo "Error 404: Repository or release not found. Using default 0.0.0"
             }
             else {
+                # 使用${}语法明确界定变量名
+                echo "Error ${statusCode}: Failed to check release. Using default 0.0.0"
                 echo "latest_version=0.0.0" >> $env:GITHUB_OUTPUT
-                echo "Error $statusCode: Failed to check release. Using default 0.0.0"
             }
         }
 
