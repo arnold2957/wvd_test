@@ -12,16 +12,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pyinstaller requests
-
+    # 第一步：从源代码提取版本号
     - name: Extract version from gui.py
       id: extract-version
       shell: pwsh
@@ -30,6 +21,7 @@ jobs:
         echo "version=$version" >> $env:GITHUB_OUTPUT
         echo "Extracted version: $version"
 
+    # 第二步：获取GitHub上最新发布的版本
     - name: Get latest release version
       id: get-latest-release
       shell: pwsh
@@ -54,12 +46,12 @@ jobs:
                 echo "Error 404: Repository or release not found. Using default 0.0.0"
             }
             else {
-                # 使用${}语法明确界定变量名
                 echo "Error ${statusCode}: Failed to check release. Using default 0.0.0"
                 echo "latest_version=0.0.0" >> $env:GITHUB_OUTPUT
             }
         }
 
+    # 第三步：比较本地版本和发布版本
     - name: Compare versions
       id: compare-versions
       shell: pwsh
@@ -73,6 +65,19 @@ jobs:
             echo "Version match, skip build"
         }
 
+    # 以下步骤仅在需要构建时执行
+    - name: Set up Python
+      if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller requests
+
     - name: Build with PyInstaller
       if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
       run: |
@@ -83,9 +88,7 @@ jobs:
       if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
       shell: pwsh
       run: |
-        # 使用Windows预装的7zip
         7z a -t7z dist/MyApp.7z ./dist/MyApp/*
-        # 验证压缩文件
         Get-ChildItem dist/MyApp.7z
     
     - name: Calculate MD5 and prepare release
@@ -93,12 +96,10 @@ jobs:
       id: calculate-md5
       shell: pwsh
       run: |
-        # 计算MD5
         $md5 = (Get-FileHash -Path dist/MyApp.7z -Algorithm MD5).Hash.ToLower()
         echo "md5=$md5" >> $env:GITHUB_OUTPUT
         echo "MD5: $md5"
         
-        # 准备release notes
         $date = Get-Date -Format "yyyy-MM-dd HH:mm:ss" -AsUTC
         @"
         **Version**: ${{ steps.extract-version.outputs.version }}
