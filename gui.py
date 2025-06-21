@@ -13,7 +13,7 @@ import time
 import platform
 
 # 当前版本号
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 OWNER = "arnold2957"
 REPO = "wvd"
 
