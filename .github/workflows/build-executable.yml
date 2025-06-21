@@ -101,11 +101,27 @@ jobs:
         echo "MD5: $md5"
         
         $date = Get-Date -Format "yyyy-MM-dd HH:mm:ss" -AsUTC
+        $version = "${{ steps.extract-version.outputs.version }}"
+
+        # 生成 release_notes.md (用于 GitHub Release)
         @"
-        **Version**: ${{ steps.extract-version.outputs.version }}
+        **Version**: $version
         **MD5**: ``$md5``
-        **Build Date**: $($date)
+        **Build Date**: $date
         "@ | Out-File -FilePath dist/release_notes.md -Encoding utf8
+
+        # 生成 release.json (用于 GitHub Pages)
+        $releaseData = @{
+          version = $version
+          md5 = $md5
+          release_date = $date
+          download_url = "https://github.com/${{ github.repository }}/releases/download/$version/MyApp.7z"
+          release_notes = "https://github.com/${{ github.repository }}/releases/tag/$version"
+        } | ConvertTo-Json
+
+        # 创建 gh-pages 目录并保存文件
+        New-Item -ItemType Directory -Path gh-pages -Force
+        $releaseData | Out-File -FilePath gh-pages/release.json -Encoding utf8
     
     - name: Create Release
       if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
@@ -117,3 +133,11 @@ jobs:
         files: dist/MyApp.7z
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Deploy to GitHub Pages
+      if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./gh-pages
+        keep_files: false  # 清除旧文件，只保留当前版本
