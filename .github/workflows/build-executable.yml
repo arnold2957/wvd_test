@@ -81,7 +81,7 @@ jobs:
     - name: Build with PyInstaller
       if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
       run: |
-        pyinstaller --onedir --name=MyApp gui.py
+        pyinstaller --onedir --name=wvd_test gui.py
         echo "Build completed"
     
     - name: Compress to ZIP
@@ -89,15 +89,15 @@ jobs:
       shell: pwsh
       run: |
         # 使用系统自带的Compress-Archive创建ZIP
-        Compress-Archive -Path ./dist/MyApp/* -DestinationPath ./dist/MyApp.zip -Force
-        Get-ChildItem dist/MyApp.zip
+        Compress-Archive -Path ./dist/wvd_test/* -DestinationPath ./dist/wvd_test.zip -Force
+        Get-ChildItem dist/wvd_test.zip
     
     - name: Calculate MD5 and prepare release
       if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
       id: calculate-md5
       shell: pwsh
       run: |
-        $md5 = (Get-FileHash -Path dist/MyApp.zip -Algorithm MD5).Hash.ToLower()
+        $md5 = (Get-FileHash -Path dist/wvd_test.zip -Algorithm MD5).Hash.ToLower()
         echo "md5=$md5" >> $env:GITHUB_OUTPUT
         echo "MD5: $md5"
         
@@ -116,7 +116,7 @@ jobs:
           version = $version
           md5 = $md5
           release_date = $date
-          download_url = "https://github.com/${{ github.repository }}/releases/download/$version/MyApp.zip"
+          download_url = "https://github.com/${{ github.repository }}/releases/download/$version/wvd_test.zip"
           release_notes = "https://github.com/${{ github.repository }}/releases/tag/$version"
         } | ConvertTo-Json
 
@@ -131,7 +131,7 @@ jobs:
         tag_name: ${{ steps.extract-version.outputs.version }}
         name: Release ${{ steps.extract-version.outputs.version }}
         body_path: dist/release_notes.md
-        files: dist/MyApp.zip
+        files: dist/wvd_test.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

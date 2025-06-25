@@ -18,7 +18,7 @@ class AutoUpdater:
         self.update_url = f"https://{github_user}.github.io/{github_repo}/release.json"
         print(self.update_url)
         
-        self.showing_msg_window = False
+        self.is_updating = False
 
         # 启动后台检查
         self.check_after_id = self.parent.after(1000, self.check_for_update)
@@ -29,22 +29,22 @@ class AutoUpdater:
 
     def _fetch_update_data(self):
         """获取更新信息"""
-        try:
-            req = Request(self.update_url, headers={'Cache-Control': 'no-cache'})
-            with urlopen(req, timeout=10) as response:
-                data = json.loads(response.read().decode())
-                
-            # 比较版本
-            if self._is_newer_version(data['version']):
-                if not self.showing_msg_window:
-                    self.showing_msg_window = True
-                    self.parent.after(0, self._show_update_prompt, data)
+        if not self.is_updating:
+            try:
+                req = Request(self.update_url, headers={'Cache-Control': 'no-cache'})
+                with urlopen(req, timeout=10) as response:
+                    data = json.loads(response.read().decode())
+                    
+                # 比较版本
+                if self._is_newer_version(data['version']):
+                        self.is_updating = True
+                        self.parent.after(0, self._show_update_prompt, data)
 
-                
-        except URLError as e:
-            print(f"更新检查失败: {e}")
-        except Exception as e:
-            print(f"错误: {e}")
+                    
+            except URLError as e:
+                print(f"更新检查失败: {e}")
+            except Exception as e:
+                print(f"错误: {e}")
 
     def _is_newer_version(self, new_version):
         print(new_version,self.current_version)
@@ -56,7 +56,7 @@ class AutoUpdater:
         if messagebox.askyesno("发现更新", msg):
             threading.Thread(target=self._download_and_apply_update, 
                             args=(update_data,), daemon=True).start()
-            self.showing_msg_window = False
+            self.is_updating = True
         else:
             self.showing_msg_window = False
 
@@ -92,7 +92,17 @@ class AutoUpdater:
                 
         except Exception as e:
             messagebox.showerror("更新错误", f"更新失败: {str(e)}")
-            
+    
+    def _extract_archive(self, archive_path, target_dir):
+        """解压压缩包"""
+        if archive_path.lower().endswith('.zip'):
+            # 使用Python内置zipfile模块解压
+            import zipfile
+            with zipfile.ZipFile(archive_path, 'r') as zip_ref:
+                zip_ref.extractall(target_dir)
+        else:
+            raise Exception(f"不支持的压缩格式: {os.path.splitext(archive_path)[1]}")
+
     def _verify_md5(self, file_path, expected_md5):
         """验证文件MD5哈希值"""
         hash_md5 = hashlib.md5()
@@ -145,7 +155,7 @@ class AutoUpdater:
     """
             with open("_update_restart.sh", "w") as f:
                 f.write(script)
-                
+
     def _restart_application(self):
         """重启应用程序"""
         if sys.platform == "win32":
