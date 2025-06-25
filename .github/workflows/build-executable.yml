@@ -84,19 +84,20 @@ jobs:
         pyinstaller --onedir --name=MyApp gui.py
         echo "Build completed"
     
-    - name: Compress to 7z
+    - name: Compress to ZIP
       if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
       shell: pwsh
       run: |
-        7z a -t7z dist/MyApp.7z ./dist/MyApp/*
-        Get-ChildItem dist/MyApp.7z
+        # 使用系统自带的Compress-Archive创建ZIP
+        Compress-Archive -Path ./dist/MyApp/* -DestinationPath ./dist/MyApp.zip -Force
+        Get-ChildItem dist/MyApp.zip
     
     - name: Calculate MD5 and prepare release
       if: ${{ steps.compare-versions.outputs.build_required == 'true' }}
       id: calculate-md5
       shell: pwsh
       run: |
-        $md5 = (Get-FileHash -Path dist/MyApp.7z -Algorithm MD5).Hash.ToLower()
+        $md5 = (Get-FileHash -Path dist/MyApp.zip -Algorithm MD5).Hash.ToLower()
         echo "md5=$md5" >> $env:GITHUB_OUTPUT
         echo "MD5: $md5"
         
@@ -115,7 +116,7 @@ jobs:
           version = $version
           md5 = $md5
           release_date = $date
-          download_url = "https://github.com/${{ github.repository }}/releases/download/$version/MyApp.7z"
+          download_url = "https://github.com/${{ github.repository }}/releases/download/$version/MyApp.zip"
           release_notes = "https://github.com/${{ github.repository }}/releases/tag/$version"
         } | ConvertTo-Json
 
@@ -130,7 +131,7 @@ jobs:
         tag_name: ${{ steps.extract-version.outputs.version }}
         name: Release ${{ steps.extract-version.outputs.version }}
         body_path: dist/release_notes.md
-        files: dist/MyApp.7z
+        files: dist/MyApp.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -140,4 +141,4 @@ jobs:
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: ./gh-pages
-        keep_files: false  # 清除旧文件，只保留当前版本
+        keep_files: false

@@ -7,17 +7,10 @@ import tkinter as tk
 from tkinter import messagebox
 from urllib.request import urlopen, Request
 from urllib.error import URLError
+import subprocess
 
 class AutoUpdater:
     def __init__(self, parent, github_user, github_repo, current_version):
-        """
-        自动更新管理器
-        
-        :param parent: 父窗口(Tk 或 Toplevel)
-        :param github_user: GitHub 用户名
-        :param github_repo: GitHub 仓库名
-        :param current_version: 当前版本号
-        """
         self.parent = parent
         self.github_user = github_user
         self.github_repo = github_repo
@@ -31,10 +24,7 @@ class AutoUpdater:
         self.check_after_id = self.parent.after(1000, self.check_for_update)
 
     def check_for_update(self):
-        """在后台线程中检查更新"""
         threading.Thread(target=self._fetch_update_data, daemon=True).start()
-        
-       
         self.check_after_id = self.parent.after(1000, self.check_for_update)
 
     def _fetch_update_data(self):
@@ -71,33 +61,38 @@ class AutoUpdater:
             self.showing_msg_window = False
 
     def _download_and_apply_update(self, update_data):
-        """下载并应用更新"""
         try:
             # 创建临时目录
             temp_dir = "__update_temp__"
             os.makedirs(temp_dir, exist_ok=True)
             
-            # 下载新版本
+            # 下载压缩包
             download_url = update_data['download_url']
-            file_name = os.path.basename(download_url)
-            temp_path = os.path.join(temp_dir, file_name)
+            archive_name = os.path.basename(download_url)
+            archive_path = os.path.join(temp_dir, archive_name)
             
-            with urlopen(download_url) as response, open(temp_path, 'wb') as out_file:
+            with urlopen(download_url) as response, open(archive_path, 'wb') as out_file:
                 out_file.write(response.read())
             
             # 验证MD5
-            if self._verify_md5(temp_path, update_data['md5']):
-                # 生成重启脚本
-                self._create_restart_script(temp_path)
-                
-                # 退出当前应用
-                self.parent.after(0, self._restart_application)
-            else:
+            if not self._verify_md5(archive_path, update_data['md5']):
                 messagebox.showerror("更新失败", "文件校验失败，请手动更新")
+                return
+                
+            # 解压到临时目录的子文件夹
+            unpack_dir = os.path.join(temp_dir, "unpacked")
+            os.makedirs(unpack_dir, exist_ok=True)
+            self._extract_archive(archive_path, unpack_dir)
+            
+            # 生成重启脚本
+            self._create_restart_script(unpack_dir)
+            
+            # 退出当前应用
+            self.parent.after(0, self._restart_application)
                 
         except Exception as e:
             messagebox.showerror("更新错误", f"更新失败: {str(e)}")
-
+            
     def _verify_md5(self, file_path, expected_md5):
         """验证文件MD5哈希值"""
         hash_md5 = hashlib.md5()
@@ -106,36 +101,55 @@ class AutoUpdater:
                 hash_md5.update(chunk)
         return hash_md5.hexdigest() == expected_md5
 
-    def _create_restart_script(self, update_file):
+    def _create_restart_script(self, unpack_dir):
         """创建重启脚本(跨平台)"""
         if sys.platform == "win32":
             script = f"""@echo off
-timeout /t 1 /nobreak >nul
-move /Y "{update_file}" "{os.path.basename(update_file)}"
-start "" "{os.path.basename(update_file)}"
-rmdir /S /Q "__update_temp__"
-del "%~f0"
-"""
+    REM 等待原始程序退出
+    timeout /t 2 /nobreak >nul
+
+    REM 复制解压后的文件到当前目录
+    xcopy /E /Y /Q "{unpack_dir}\\*" "."
+
+    REM 启动新版本程序
+    start "" "{os.path.basename(sys.argv[0])}"
+
+    REM 清理临时文件
+    rmdir /S /Q "__update_temp__"
+
+    REM 删除自身
+    del "%~f0"
+    """
             with open("_update_restart.bat", "w") as f:
                 f.write(script)
                 
         else:  # Linux/macOS
             script = f"""#!/bin/bash
-sleep 1
-mv -f "{update_file}" "{os.path.basename(update_file)}"
-chmod +x "{os.path.basename(update_file)}"
-rm -rf "__update_temp__"
-nohup ./{os.path.basename(update_file)} >/dev/null 2>&1 &
-rm -- "$0"
-"""
+    # 等待原始程序退出
+    sleep 2
+
+    # 移动解压后的文件到当前目录
+    mv -f "{unpack_dir}"/* .
+
+    # 添加执行权限（如果需要）
+    chmod +x "{os.path.basename(sys.argv[0])}"
+
+    # 启动新版本程序
+    nohup ./{os.path.basename(sys.argv[0])} >/dev/null 2>&1 &
+
+    # 清理临时文件
+    rm -rf "__update_temp__"
+
+    # 删除自身
+    rm -- "$0"
+    """
             with open("_update_restart.sh", "w") as f:
                 f.write(script)
-            os.chmod("_update_restart.sh", 0o755)
-
+                
     def _restart_application(self):
         """重启应用程序"""
         if sys.platform == "win32":
-            os.startfile("_update_restart.bat")
+            subprocess.Popen(["_update_restart.bat"], shell=True)
         else:
             os.system("nohup ./_update_restart.sh &")
         

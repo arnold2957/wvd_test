@@ -2,7 +2,7 @@ import tkinter as tk
 from auto_updater import AutoUpdater
 
 # 当前版本号
-__version__ = "1.1.3"
+__version__ = "1.1.4"
 OWNER = "arnold2957"
 REPO = "wvd_test"
 
